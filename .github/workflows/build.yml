@@ -174,25 +174,33 @@ jobs:
       - name: "📦 Repack Boot Image"
         working-directory: ./${{ env.kernelDir }}/AIK
         run: |
-          # Damos permisos usando la ruta relativa correcta
-          chmod +x *.sh
-          chmod +x bin/magiskboot
+          # 1. Verificar dónde estamos y qué hay aquí
+          echo "📍 Directorio actual: $(pwd)"
+          ls -F
           
-          # 1. Descomprimir
-          ./unpackimg.sh boot.img
+          # 2. Intentar dar permisos (usando find para evitar el error de 'no such file')
+          find . -maxdepth 1 -name "*.sh" -exec chmod +x {} +
+          [ -f "bin/magiskboot" ] && chmod +x bin/magiskboot
           
-          # 2. Reemplazar Kernel
-          # Buscamos la imagen en la carpeta 'out' que definiste al inicio
-          IMAGE_PATH="$GITHUB_WORKSPACE/${{ env.kernelDir }}/${{ env.kernelName }}/${{ env.OUT_DIR }}/arch/arm64/boot/Image"
-          
-          if [ -f "$IMAGE_PATH" ]; then
-            cp "$IMAGE_PATH" split_img/boot.img-kernel
+          # 3. Ejecutar unpackimg.sh si existe
+          if [ -f "./unpackimg.sh" ]; then
+            ./unpackimg.sh boot.img
           else
-            echo "❌ ERROR: No se encontró el archivo Image en $IMAGE_PATH"
+            echo "❌ ERROR: unpackimg.sh no se encuentra en $(pwd)"
             exit 1
           fi
           
-          # 3. Reempaquetar
+          # 4. Reemplazar Kernel (Ruta absoluta para evitar fallos)
+          IMAGE_SOURCE="$GITHUB_WORKSPACE/${{ env.kernelDir }}/${{ env.kernelName }}/${{ env.OUT_DIR }}/arch/arm64/boot/Image"
+          if [ -f "$IMAGE_SOURCE" ]; then
+            cp "$IMAGE_SOURCE" split_img/boot.img-kernel
+            echo "✅ Kernel reemplazado correctamente"
+          else
+            echo "❌ ERROR: No se encontró la compilación en $IMAGE_SOURCE"
+            exit 1
+          fi
+          
+          # 5. Reempaquetar
           ./repackimg.sh
           mv image-new.img $GITHUB_WORKSPACE/boot-custom-zeus.img
           
