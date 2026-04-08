@@ -147,6 +147,10 @@ jobs:
           echo "PATH Variable: $PATH"
           make ${{ env.args }} ${{ env.DEFCONFIG_NAME }}
 
+      - name: "📂 Clone Device Tree"
+              run: |
+                git clone https://github.com/LineageOS/android_device_xiaomi_zeus      
+
       - name: "🎶 Build kernel"
         working-directory: ./${{ env.kernelDir }}/${{ env.kernelName }}
         env:
