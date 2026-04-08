@@ -183,34 +183,40 @@ jobs:
         run: |
           curl -L "https://github.com/${{ github.repository }}/releases/download/base-images/boot-original-lineage-23.2-20260317.img" -o boot.img
 
-      - name: "📦 Repack Boot Image"
+       - name: "📦 Repack Boot Image"
         working-directory: ./${{ env.kernelDir }}/AIK
         run: |
-          # 1. Verificación de seguridad: ¿Existe el kernel compilado?
-          IMAGE_SOURCE="$GITHUB_WORKSPACE/${{ env.kernelDir }}/${{ env.kernelName }}/${{ env.OUT_DIR }}/arch/arm64/boot/Image"
+          # 1. Verificación de seguridad (Ruta corregida según el LOG)
+          # Eliminamos la carpeta duplicada 'kernelName' de la ruta
+          IMAGE_SOURCE="$GITHUB_WORKSPACE/${{ env.kernelDir }}/${{ env.OUT_DIR }}/arch/arm64/boot/Image"
+          
+          echo "🔎 Buscando kernel en: $IMAGE_SOURCE"
+          
           if [ ! -f "$IMAGE_SOURCE" ]; then
-            echo "❌ ERROR: No se encontró el archivo Image en $IMAGE_SOURCE"
-            echo "Revisando contenido de la carpeta out..."
-            ls -R $GITHUB_WORKSPACE/${{ env.kernelDir }}/${{ env.OUT_DIR }}/arch/arm64/boot/ || true
+            echo "❌ ERROR: No se encontró el archivo Image."
             exit 1
           fi
 
-          # 2. Aseguramos que los scripts de Linux existan (por si el clone no los trajo a la raíz)
+          # 2. Aseguramos scripts de AIK
           [ ! -f "unpackimg.sh" ] && [ -f "linux/unpackimg.sh" ] && cp linux/unpackimg.sh .
           [ ! -f "repackimg.sh" ] && [ -f "linux/repackimg.sh" ] && cp linux/repackimg.sh .
           chmod +x *.sh bin/magiskboot
 
           # 3. Proceso de reempaquetado
           ./unpackimg.sh boot.img
+          
+          # Copiamos la imagen al lugar que AIK espera
           cp -f "$IMAGE_SOURCE" split_img/boot.img-kernel
+          echo "✅ Kernel inyectado en AIK"
+          
           ./repackimg.sh
           
-          # 4. Exportar el resultado
+          # 4. Exportar el resultado final
           if [ -f "image-new.img" ]; then
             mv image-new.img $GITHUB_WORKSPACE/boot-custom-zeus.img
-            echo "✅ Boot reempaquetado con éxito en la raíz"
+            echo "✅ ¡ÉXITO! boot-custom-zeus.img generado en la raíz."
           else
-            echo "❌ ERROR: AIK no pudo generar image-new.img"
+            echo "❌ ERROR: AIK falló al crear la nueva imagen."
             exit 1
           fi
           
