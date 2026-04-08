@@ -161,59 +161,46 @@ jobs:
       - name: "🛠️ Setup AIK"
         working-directory: ./${{ env.kernelDir }}
         run: |
-          # Eliminamos la carpeta anterior por si acaso
-          rm -rf AIK
-          # Clonamos específicamente la rama de Linux (master suele ser Windows en AIK)
           git clone https://github.com/osm0sis/Android-Image-Kitchen.git AIK
-          
-          # Si los archivos .sh no aparecen, los forzamos o descargamos de una fuente Linux segura
+          # Entramos y limpiamos archivos de Windows para evitar confusiones
           cd AIK
-          # En ocasiones AIK requiere un ajuste para ver los scripts de Linux:
-          # Si no están, los descargamos directamente de la fuente de scripts de osm0sis
-          [ ! -f "unpackimg.sh" ] && wget https://raw.githubusercontent.com/osm0sis/Android-Image-Kitchen/master/unpackimg.sh
-          [ ! -f "repackimg.sh" ] && wget https://raw.githubusercontent.com/osm0sis/Android-Image-Kitchen/master/repackimg.sh
-          chmod +x *.sh
+          rm -f *.bat *.exe
+          # Verificamos qué archivos de script tenemos realmente
+          ls -F
 
       - name: "📂 Download Original Boot Image"
         working-directory: ./${{ env.kernelDir }}/AIK
         run: |
           curl -L "https://github.com/${{ github.repository }}/releases/download/base-images/boot-original-lineage-23.2-20260317.img" -o boot.img
-          ls -lh boot.img
 
       - name: "📦 Repack Boot Image"
         working-directory: ./${{ env.kernelDir }}/AIK
         run: |
-          # 1. Asegurar binarios de Linux
-          # Si por alguna razón siguen sin estar, los traemos
-          curl -sLO https://raw.githubusercontent.com/osm0sis/Android-Image-Kitchen/master/unpackimg.sh
-          curl -sLO https://raw.githubusercontent.com/osm0sis/Android-Image-Kitchen/master/repackimg.sh
-          curl -sLO https://raw.githubusercontent.com/osm0sis/Android-Image-Kitchen/master/cleanup.sh
+          # 1. Permisos: AIK en Linux necesita que sus binarios internos sean ejecutables
+          chmod -R +x .
           
-          # 2. Permisos totales
-          chmod +x *.sh
-          [ -d "bin" ] && chmod +x bin/*
+          # 2. Ejecutar el desempaquetado
+          # Usamos 'sh' explícitamente por si el sistema no reconoce el shebang
+          sh unpackimg.sh boot.img
           
-          # 3. Descomprimir
-          ./unpackimg.sh boot.img
-          
-          # 4. Reemplazar Kernel (Ruta absoluta)
+          # 3. Reemplazar el Kernel Image
           IMAGE_SOURCE="$GITHUB_WORKSPACE/${{ env.kernelDir }}/${{ env.kernelName }}/${{ env.OUT_DIR }}/arch/arm64/boot/Image"
           if [ -f "$IMAGE_SOURCE" ]; then
             cp -f "$IMAGE_SOURCE" split_img/boot.img-kernel
-            echo "✅ Kernel Image reemplazado"
+            echo "✅ Kernel reemplazado"
           else
-            echo "❌ ERROR: No se encontró la compilación en $IMAGE_SOURCE"
+            echo "❌ ERROR: No se encontró el archivo Image en $IMAGE_SOURCE"
             exit 1
           fi
           
-          # 5. Reempaquetar
-          ./repackimg.sh
+          # 4. Reempaquetar
+          sh repackimg.sh
           
-          # 6. Mover resultado a la raíz
+          # 5. Mover el resultado final
           if [ -f "image-new.img" ]; then
             mv image-new.img $GITHUB_WORKSPACE/boot-custom-zeus.img
           else
-            echo "❌ ERROR: No se pudo crear image-new.img"
+            echo "❌ ERROR: No se generó image-new.img"
             exit 1
           fi
           
