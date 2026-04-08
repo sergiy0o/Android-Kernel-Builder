@@ -121,9 +121,9 @@ jobs:
           echo "args=$args" >> $GITHUB_OUTPUT
 
       - name: "😋 Update KernelSU"
-              working-directory: ./${{ env.kernelDir }}/${{ env.kernelName }}
-              if: ${{ env.withKernelSU == 'true' }}
-              run: |
+        working-directory: ./${{ env.kernelDir }}/${{ env.kernelName }}
+        if: ${{ env.withKernelSU == 'true' }}
+        run: |
                 # 1. Limpieza y descarga de KernelSU
                 [ -d "./KernelSU" ] && rm -rf "./KernelSU"
                 [ -d "./drivers/kernelsu" ] && rm -rf "./drivers/kernelsu"
