@@ -95,7 +95,7 @@ jobs:
 
           echo "ARCH=$ARCH" >> $GITHUB_ENV
 
-          args="-j$(nproc --all)"
+          args="-j2"
           if [ -n "${{ env.OUT_DIR }}" ]; then
             mkdir -p $(pwd)/${{ env.OUT_DIR }}
             args="$args O=$(pwd)/${{ env.OUT_DIR }}"
@@ -121,35 +121,33 @@ jobs:
           echo "args=$args" >> $GITHUB_OUTPUT
 
       - name: "😋 Update KernelSU"
-        working-directory: ./${{ env.kernelDir }}/${{ env.kernelName }}
-        if: ${{ env.withKernelSU == 'true' }}
-        run: |
-          if [ -d "./KernelSU" ]; then
-            rm -rf "./KernelSU"
-          fi
-          if [ -d "./drivers/kernelsu" ]; then
-            rm -rf "./drivers/kernelsu"
-          fi
-
-          curl -LSs "https://raw.githubusercontent.com/tiann/KernelSU/main/kernel/setup.sh" | bash -s main
-
-          echo -e "\nCONFIG_KPROBES=y" >> ./arch/${{ env.ARCH }}/configs/${{ env.DEFCONFIG_NAME }}
-          echo -e "\nCONFIG_HAVE_KPROBES=y" >> ./arch/${{ env.ARCH }}/configs/${{ env.DEFCONFIG_NAME }}
-          echo -e "\nCONFIG_KPROBE_EVENTS=y" >> ./arch/${{ env.ARCH }}/configs/${{ env.DEFCONFIG_NAME }}
-
-          cat ./arch/${{ env.ARCH }}/configs/${{ env.DEFCONFIG_NAME }}
+              working-directory: ./${{ env.kernelDir }}/${{ env.kernelName }}
+              if: ${{ env.withKernelSU == 'true' }}
+              run: |
+                # 1. Limpieza y descarga de KernelSU
+                [ -d "./KernelSU" ] && rm -rf "./KernelSU"
+                [ -d "./drivers/kernelsu" ] && rm -rf "./drivers/kernelsu"
+                curl -LSs "https://raw.githubusercontent.com/tiann/KernelSU/main/kernel/setup.sh" | bash -s main
+      
+                # 2. IMPORTANTE: Escribimos los configs en el fragmento de ZEUS, no en el general
+                # Usamos la ruta completa al archivo que vimos en tu captura de pantalla
+                CONFIG_PATH="./arch/arm64/configs/vendor/zeus_GKI.config"
+                
+                echo -e "\nCONFIG_KPROBES=y" >> $CONFIG_PATH
+                echo -e "\nCONFIG_HAVE_KPROBES=y" >> $CONFIG_PATH
+                echo -e "\nCONFIG_KPROBE_EVENTS=y" >> $CONFIG_PATH
+                
+                echo "Configuración aplicada a $CONFIG_PATH:"
+                tail -n 5 $CONFIG_PATH
 
       - name: "👍 Make defconfig"
         working-directory: ./${{ env.kernelDir }}/${{ env.kernelName }}
         env:
           args: ${{ steps.generate-args.outputs.args }}
         run: |
-          echo "PATH Variable: $PATH"
-          make ${{ env.args }} ${{ env.DEFCONFIG_NAME }}
-
-      - name: "📂 Clone Device Tree"
-              run: |
-                git clone https://github.com/LineageOS/android_device_xiaomi_zeus      
+          # Aquí es donde ocurre la magia: Kbuild une ambos archivos
+          # gki_defconfig (Base Google) + zeus_GKI.config (Drivers Xiaomi + KSU)
+          make ${{ env.args }} gki_defconfig vendor/zeus_GKI.config
 
       - name: "🎶 Build kernel"
         working-directory: ./${{ env.kernelDir }}/${{ env.kernelName }}
@@ -157,7 +155,38 @@ jobs:
           args: ${{ steps.generate-args.outputs.args }}
         run: |
           echo "PATH Variable: $PATH"
-          make ${args}
+          # Usamos la variable de entorno 'args' que definimos arriba
+          make $args
+
+      - name: "🛠️ Setup AIK"
+        working-directory: ./${{ env.kernelDir }}
+        run: |
+          git clone https://github.com/osm0sis/Android-Image-Kitchen.git AIK
+
+      - name: "📂 Download Original Boot Image"
+        working-directory: ./${{ env.kernelDir }}/AIK
+        run: |
+          # Asegúrate de usar el enlace real que obtengas de tu Release
+          curl -L "https://github.com/${{ github.repository }}/releases/download/base-images/boot-original-lineage-23.2-20260317.img" -o boot.img
+          
+          # Verificación de seguridad
+          ls -lh boot.img
+
+      - name: "📦 Repack Boot Image"
+        working-directory: ./${{ env.kernelDir }}/AIK
+        run: |
+          chmod +x *.sh bin/magiskboot
+          
+          # 1. Descomprimir el original que acabamos de bajar
+          ./unpackimg.sh boot.img
+          
+          # 2. Reemplazar el kernel (Image) con el que compilaste en el paso anterior
+          # Nota: Ajusta la ruta si tu Image está en 'out' o en la raíz
+          cp $GITHUB_WORKSPACE/${{ env.kernelDir }}/${{ env.kernelName }}/${{ env.OUT_DIR }}/arch/arm64/boot/Image split_img/boot.img-kernel
+          
+          # 3. Reempaquetar
+          ./repackimg.sh
+          mv image-new.img ../../boot-custom-zeus.img
 
       - name: "💛 Upload Image"
         uses: actions/upload-artifact@v4
@@ -189,4 +218,11 @@ jobs:
           name: dtbo.img(${{ env.kernelDevice }}-${{ env.kernelName }}-${{ env.kernelBranch }})
           path: ./${{ env.kernelDir }}/${{ env.OUT_DIR }}/arch/${{ env.ARCH }}/boot/dtbo.img
           if-no-files-found: ignore
+          retention-days: 7
+
+      - name: "🚀 Upload Final Flashable Boot"
+        uses: actions/upload-artifact@v4
+        with:
+          name: Boot-KernelSU-Zeus
+          path: boot-custom-zeus.img
           retention-days: 7
