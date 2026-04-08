@@ -162,32 +162,40 @@ jobs:
         working-directory: ./${{ env.kernelDir }}
         run: |
           git clone https://github.com/osm0sis/Android-Image-Kitchen.git AIK
+          # Verificación: ¿Qué hay dentro de AIK?
+          ls -R AIK
 
       - name: "📂 Download Original Boot Image"
         working-directory: ./${{ env.kernelDir }}/AIK
         run: |
-          # Asegúrate de usar el enlace real que obtengas de tu Release
           curl -L "https://github.com/${{ github.repository }}/releases/download/base-images/boot-original-lineage-23.2-20260317.img" -o boot.img
-          
-          # Verificación de seguridad
           ls -lh boot.img
 
       - name: "📦 Repack Boot Image"
         working-directory: ./${{ env.kernelDir }}/AIK
         run: |
-          chmod +x *.sh bin/magiskboot
+          # Damos permisos usando la ruta relativa correcta
+          chmod +x *.sh
+          chmod +x bin/magiskboot
           
-          # 1. Descomprimir el original que acabamos de bajar
+          # 1. Descomprimir
           ./unpackimg.sh boot.img
           
-          # 2. Reemplazar el kernel (Image) con el que compilaste en el paso anterior
-          # Nota: Ajusta la ruta si tu Image está en 'out' o en la raíz
-          cp $GITHUB_WORKSPACE/${{ env.kernelDir }}/${{ env.kernelName }}/${{ env.OUT_DIR }}/arch/arm64/boot/Image split_img/boot.img-kernel
+          # 2. Reemplazar Kernel
+          # Buscamos la imagen en la carpeta 'out' que definiste al inicio
+          IMAGE_PATH="$GITHUB_WORKSPACE/${{ env.kernelDir }}/${{ env.kernelName }}/${{ env.OUT_DIR }}/arch/arm64/boot/Image"
+          
+          if [ -f "$IMAGE_PATH" ]; then
+            cp "$IMAGE_PATH" split_img/boot.img-kernel
+          else
+            echo "❌ ERROR: No se encontró el archivo Image en $IMAGE_PATH"
+            exit 1
+          fi
           
           # 3. Reempaquetar
           ./repackimg.sh
-          mv image-new.img ../../boot-custom-zeus.img
-
+          mv image-new.img $GITHUB_WORKSPACE/boot-custom-zeus.img
+          
       - name: "💛 Upload Image"
         uses: actions/upload-artifact@v4
         with:
