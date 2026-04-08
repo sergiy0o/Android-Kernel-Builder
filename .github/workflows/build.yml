@@ -158,14 +158,15 @@ jobs:
           # Usamos la variable de entorno 'args' que definimos arriba
           make $args
 
-      - name: "🛠️ Setup AIK"
+      - name: "🛠️ Setup AIK (Linux Version)"
         working-directory: ./${{ env.kernelDir }}
         run: |
-          git clone https://github.com/osm0sis/Android-Image-Kitchen.git AIK
-          # Entramos y limpiamos archivos de Windows para evitar confusiones
+          # Eliminamos cualquier rastro anterior
+          rm -rf AIK
+          # Clonamos un mirror que garantiza scripts .sh para Linux
+          git clone https://github.com/hzyitc/Android-Image-Kitchen-Linux.git AIK
           cd AIK
-          rm -f *.bat *.exe
-          # Verificamos qué archivos de script tenemos realmente
+          # Verificación de seguridad para ver los archivos en el log
           ls -F
 
       - name: "📂 Download Original Boot Image"
@@ -176,31 +177,35 @@ jobs:
       - name: "📦 Repack Boot Image"
         working-directory: ./${{ env.kernelDir }}/AIK
         run: |
-          # 1. Permisos: AIK en Linux necesita que sus binarios internos sean ejecutables
+          # 1. Permisos globales para binarios y scripts
           chmod -R +x .
           
-          # 2. Ejecutar el desempaquetado
-          # Usamos 'sh' explícitamente por si el sistema no reconoce el shebang
-          sh unpackimg.sh boot.img
+          # 2. Desempaquetar
+          ./unpackimg.sh boot.img
           
-          # 3. Reemplazar el Kernel Image
+          # 3. Reemplazar Kernel Image
+          # Asegúrate de que OUT_DIR esté bien definido en tu env
           IMAGE_SOURCE="$GITHUB_WORKSPACE/${{ env.kernelDir }}/${{ env.kernelName }}/${{ env.OUT_DIR }}/arch/arm64/boot/Image"
+          
           if [ -f "$IMAGE_SOURCE" ]; then
             cp -f "$IMAGE_SOURCE" split_img/boot.img-kernel
-            echo "✅ Kernel reemplazado"
+            echo "✅ Kernel reemplazado correctamente"
           else
             echo "❌ ERROR: No se encontró el archivo Image en $IMAGE_SOURCE"
+            # Listamos el directorio out para debug en caso de error
+            ls -R $GITHUB_WORKSPACE/${{ env.kernelDir }}/${{ env.OUT_DIR }}/arch/arm64/boot/
             exit 1
           fi
           
           # 4. Reempaquetar
-          sh repackimg.sh
+          ./repackimg.sh
           
-          # 5. Mover el resultado final
+          # 5. Mover el resultado final a la raíz para el Artifact
           if [ -f "image-new.img" ]; then
             mv image-new.img $GITHUB_WORKSPACE/boot-custom-zeus.img
+            echo "✅ Boot reempaquetado con éxito"
           else
-            echo "❌ ERROR: No se generó image-new.img"
+            echo "❌ ERROR: No se pudo generar el archivo image-new.img"
             exit 1
           fi
           
