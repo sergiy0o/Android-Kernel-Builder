@@ -158,16 +158,27 @@ jobs:
           # Usamos la variable de entorno 'args' que definimos arriba
           make $args
 
-      - name: "🛠️ Setup AIK (Linux Version)"
+      - name: "🛠️ Setup AIK"
         working-directory: ./${{ env.kernelDir }}
         run: |
-          # Eliminamos cualquier rastro anterior
+          # 1. Limpieza total
           rm -rf AIK
-          # Clonamos un mirror que garantiza scripts .sh para Linux
-          git clone https://github.com/hzyitc/Android-Image-Kitchen-Linux.git AIK
-          cd AIK
-          # Verificación de seguridad para ver los archivos en el log
-          ls -F
+          mkdir AIK && cd AIK
+          
+          # 2. Descargamos los binarios de la rama principal de AIK (que son universales)
+          git clone --depth=1 https://github.com/osm0sis/Android-Image-Kitchen.git .
+          
+          # 3. Descargamos manualmente los scripts de Linux desde el mirror oficial de scripts
+          # Esto evita el error 404 y el error de autenticación
+          curl -sLO https://raw.githubusercontent.com/osm0sis/Android-Image-Kitchen/master/unpackimg.sh
+          curl -sLO https://raw.githubusercontent.com/osm0sis/Android-Image-Kitchen/master/repackimg.sh
+          curl -sLO https://raw.githubusercontent.com/osm0sis/Android-Image-Kitchen/master/cleanup.sh
+          
+          # 4. Ajuste de binarios para Linux (Magiskboot es la clave)
+          chmod -R +x .
+          [ -d "bin" ] && chmod +x bin/linux/x86_64/* 2>/dev/null || true
+          # Creamos un enlace simbólico si AIK espera los binarios en bin/
+          [ -d "bin/linux/x86_64" ] && cp -f bin/linux/x86_64/* bin/
 
       - name: "📂 Download Original Boot Image"
         working-directory: ./${{ env.kernelDir }}/AIK
@@ -177,35 +188,31 @@ jobs:
       - name: "📦 Repack Boot Image"
         working-directory: ./${{ env.kernelDir }}/AIK
         run: |
-          # 1. Permisos globales para binarios y scripts
-          chmod -R +x .
+          # 1. Asegurar permisos de ejecución
+          chmod +x *.sh
+          chmod +x bin/magiskboot
           
-          # 2. Desempaquetar
+          # 2. Desempaquetar (usamos sudo si es necesario para los permisos de loop de AIK)
           ./unpackimg.sh boot.img
           
           # 3. Reemplazar Kernel Image
-          # Asegúrate de que OUT_DIR esté bien definido en tu env
           IMAGE_SOURCE="$GITHUB_WORKSPACE/${{ env.kernelDir }}/${{ env.kernelName }}/${{ env.OUT_DIR }}/arch/arm64/boot/Image"
-          
           if [ -f "$IMAGE_SOURCE" ]; then
             cp -f "$IMAGE_SOURCE" split_img/boot.img-kernel
-            echo "✅ Kernel reemplazado correctamente"
+            echo "✅ Kernel reemplazado"
           else
             echo "❌ ERROR: No se encontró el archivo Image en $IMAGE_SOURCE"
-            # Listamos el directorio out para debug en caso de error
-            ls -R $GITHUB_WORKSPACE/${{ env.kernelDir }}/${{ env.OUT_DIR }}/arch/arm64/boot/
             exit 1
           fi
           
           # 4. Reempaquetar
           ./repackimg.sh
           
-          # 5. Mover el resultado final a la raíz para el Artifact
+          # 5. Mover resultado final
           if [ -f "image-new.img" ]; then
             mv image-new.img $GITHUB_WORKSPACE/boot-custom-zeus.img
-            echo "✅ Boot reempaquetado con éxito"
           else
-            echo "❌ ERROR: No se pudo generar el archivo image-new.img"
+            echo "❌ ERROR: El reempaquetado falló, image-new.img no existe."
             exit 1
           fi
           
