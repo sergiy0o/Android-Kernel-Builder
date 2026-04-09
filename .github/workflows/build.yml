@@ -162,16 +162,9 @@ jobs:
         working-directory: ./${{ env.kernelDir }}
         run: |
           rm -rf AIK
-          git clone --depth=1 https://github.com/osm0sis/Android-Image-Kitchen.git AIK
+          # Usamos este mirror que tiene la estructura de Linux correcta
+          git clone --depth=1 https://github.com/hzyitc/Android-Image-Kitchen-Linux.git AIK
           cd AIK
-          # Forzamos la descarga de los scripts de Linux que faltan en tu log
-          curl -sLO https://raw.githubusercontent.com/osm0sis/Android-Image-Kitchen/master/unpackimg.sh
-          curl -sLO https://raw.githubusercontent.com/osm0sis/Android-Image-Kitchen/master/repackimg.sh
-          curl -sLO https://raw.githubusercontent.com/osm0sis/Android-Image-Kitchen/master/cleanup.sh
-          # Los scripts de osm0sis requieren magiskboot. Vamos a buscarlo en el repo clonado
-          # y moverlo a donde los scripts lo esperan
-          mkdir -p bin
-          cp -f bin/linux/x86_64/magiskboot bin/ 2>/dev/null || true
           chmod -R +x .
 
       - name: "📂 Download Original Boot Image"
@@ -182,34 +175,33 @@ jobs:
       - name: "📦 Repack Boot Image"
         working-directory: ./${{ env.kernelDir }}/AIK
         run: |
-          # 1. Ruta del kernel compilado
+          # 1. Ruta del kernel
           IMAGE_SOURCE="$GITHUB_WORKSPACE/${{ env.kernelDir }}/${{ env.OUT_DIR }}/arch/arm64/boot/Image"
           
-          # 2. Asegurar permisos (ahora que bajamos los .sh con curl)
-          chmod +x *.sh
-          [ -f "bin/magiskboot" ] && chmod +x bin/magiskboot
-
+          # 2. Permisos y Verificación
+          chmod +x *.sh bin/magiskboot
+          
           # 3. Desempaquetar
-          ./unpackimg.sh boot.img
+          ./unpackimg.sh --notips boot.img
           
           # 4. Inyectar Kernel
           if [ -f "$IMAGE_SOURCE" ]; then
             cp -f "$IMAGE_SOURCE" split_img/boot.img-kernel
-            echo "✅ Kernel Image inyectado."
+            echo "✅ Kernel inyectado."
           else
-            echo "❌ ERROR: No se encontró la imagen en $IMAGE_SOURCE"
+            echo "❌ ERROR: No se encontró Image en $IMAGE_SOURCE"
             exit 1
           fi
           
           # 5. Reempaquetar
-          ./repackimg.sh
+          ./repackimg.sh --notips
           
           # 6. Mover resultado final
           if [ -f "image-new.img" ]; then
             mv image-new.img $GITHUB_WORKSPACE/boot-custom-zeus.img
             echo "✅ ¡PROCESO COMPLETADO!"
           else
-            echo "❌ ERROR: No se pudo generar image-new.img"
+            echo "❌ ERROR: No se generó la imagen nueva."
             exit 1
           fi
           
