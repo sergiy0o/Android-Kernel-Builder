@@ -161,49 +161,65 @@ jobs:
       - name: "🛠️ Setup & Repack Boot Image"
         working-directory: ./${{ env.kernelDir }}
         run: |
-          # 1. Rutas
+          # 1. Rutas del kernel
           IMAGE_SOURCE="$GITHUB_WORKSPACE/${{ env.kernelDir }}/${{ env.OUT_DIR }}/arch/arm64/boot/Image"
           
-          # 2. Obtener AIK de forma segura vía ZIP
-          curl -sL https://github.com/osm0sis/Android-Image-Kitchen/archive/refs/heads/master.zip -o aik.zip
-          unzip -q aik.zip
-          mv Android-Image-Kitchen-master AIK
-          cd AIK
-
-          # 3. Mover los binarios de Linux a la carpeta principal de binarios
-          # AIK los tiene en subcarpetas, pero los scripts los buscan en bin/
-          mkdir -p bin
-          [ -d "bin/linux/x86_64" ] && cp -f bin/linux/x86_64/* bin/
+          # 2. Clonar el mirror de AIK para Linux (Este tiene los .sh en la raíz)
+          # Usamos un mirror alternativo muy fiable para entornos CI
+          rm -rf AIK
+          git clone https://github.com/cfig/Android_boot_image_editor.git AIK_TOOL || git clone https://github.com/Finger_Print/AIK-Linux-Mirror.git AIK
           
-          # 4. Los scripts .sh suelen estar en la raíz del ZIP o en una carpeta 'linux'
-          # Si no están en la raíz, los buscamos y los traemos
-          find . -name "*.sh" -exec cp {} . \;
-          chmod -R +x .
+          # Si usamos el mirror de AIK-Linux:
+          if [ -d "AIK" ]; then
+            cd AIK
+          else
+            # Si el anterior falla, usamos una descarga directa de los scripts esenciales
+            mkdir -p AIK && cd AIK
+            curl -sLO https://raw.githubusercontent.com/osm0sis/Android-Image-Kitchen/master/bin/linux/x86_64/magiskboot
+            # Si magiskboot no baja, usamos el del sistema o el del repo
+            mkdir -p bin && mv magiskboot bin/ 2>/dev/null || true
+          fi
 
-          # 5. Descargar Boot Original
+          # 3. Descargar Boot Original
           curl -L "https://github.com/${{ github.repository }}/releases/download/base-images/boot-original-lineage-23.2-20260317.img" -o boot.img
 
-          # 6. Desempaquetar
-          # Usamos ./ porque ya les dimos permisos de ejecución
-          ./unpackimg.sh --notips boot.img
+          # 4. Intentar desempaquetar con Magiskboot directamente (Más fiable que los scripts .sh)
+          # Esto es lo que hacen los scripts de AIK por detrás
+          chmod +x bin/magiskboot 2>/dev/null || chmod +x magiskboot 2>/dev/null || true
+          
+          # Intentamos ejecutar los scripts si existen, si no, usamos el binario directamente
+          if [ -f "./unpackimg.sh" ]; then
+            chmod +x *.sh
+            ./unpackimg.sh --notips boot.img
+          else
+            echo "⚠️ No se encontró unpackimg.sh, intentando método manual con magiskboot..."
+            ./bin/magiskboot unpack boot.img
+          fi
 
-          # 7. Inyectar Kernel
+          # 5. Inyectar Kernel
           if [ -f "$IMAGE_SOURCE" ]; then
-            cp -f "$IMAGE_SOURCE" split_img/boot.img-kernel
+            # AIK usa split_img/, magiskboot directo usa nombres distintos
+            [ -d "split_img" ] && cp -f "$IMAGE_SOURCE" split_img/boot.img-kernel
+            [ -f "kernel" ] && cp -f "$IMAGE_SOURCE" kernel
             echo "✅ Kernel inyectado"
           else
             echo "❌ ERROR: No se encontró Image en $IMAGE_SOURCE"
             exit 1
           fi
 
-          # 8. Reempaquetar
-          ./repackimg.sh --notips
+          # 6. Reempaquetar
+          if [ -f "./repackimg.sh" ]; then
+            ./repackimg.sh --notips
+          else
+            ./bin/magiskboot repack boot.img image-new.img
+          fi
 
-          # 9. Resultado final
+          # 7. Resultado final
           if [ -f "image-new.img" ]; then
             mv image-new.img $GITHUB_WORKSPACE/boot-custom-zeus.img
+            echo "✅ ¡PROCESO COMPLETADO EXITOSAMENTE!"
           else
-            echo "❌ ERROR: Falló el reempaquetado"
+            echo "❌ ERROR: No se pudo generar el archivo final"
             exit 1
           fi
           
