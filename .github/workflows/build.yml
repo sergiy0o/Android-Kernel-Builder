@@ -161,51 +161,49 @@ jobs:
       - name: "🛠️ Setup & Repack Boot Image"
         working-directory: ./${{ env.kernelDir }}
         run: |
-          # 1. Preparar rutas
+          # 1. Rutas
           IMAGE_SOURCE="$GITHUB_WORKSPACE/${{ env.kernelDir }}/${{ env.OUT_DIR }}/arch/arm64/boot/Image"
           
-          # 2. Descargar e instalar AIK directamente desde el código fuente oficial
-          # Bajamos el ZIP de la rama principal para evitar problemas de Git Auth
+          # 2. Obtener AIK de forma segura vía ZIP
           curl -sL https://github.com/osm0sis/Android-Image-Kitchen/archive/refs/heads/master.zip -o aik.zip
           unzip -q aik.zip
           mv Android-Image-Kitchen-master AIK
           cd AIK
-          
-          # 3. Descargar los scripts de Linux necesarios (Asegurando la URL correcta)
-          curl -sL https://raw.githubusercontent.com/osm0sis/Android-Image-Kitchen/master/unpackimg.sh -o unpackimg.sh
-          curl -sL https://raw.githubusercontent.com/osm0sis/Android-Image-Kitchen/master/repackimg.sh -o repackimg.sh
-          
-          # 4. Configurar binarios de Linux
-          # AIK guarda sus binarios en bin/linux/x86_64/
+
+          # 3. Mover los binarios de Linux a la carpeta principal de binarios
+          # AIK los tiene en subcarpetas, pero los scripts los buscan en bin/
           mkdir -p bin
-          cp -f bin/linux/x86_64/magiskboot bin/ 2>/dev/null || true
+          [ -d "bin/linux/x86_64" ] && cp -f bin/linux/x86_64/* bin/
+          
+          # 4. Los scripts .sh suelen estar en la raíz del ZIP o en una carpeta 'linux'
+          # Si no están en la raíz, los buscamos y los traemos
+          find . -name "*.sh" -exec cp {} . \;
           chmod -R +x .
-          
-          # 5. Descargar Boot Original (dentro de la carpeta AIK)
+
+          # 5. Descargar Boot Original
           curl -L "https://github.com/${{ github.repository }}/releases/download/base-images/boot-original-lineage-23.2-20260317.img" -o boot.img
-          
-          # 6. Ejecutar Desempaquetado
-          # Usamos bash explícitamente para evitar errores de interpretación
-          bash unpackimg.sh --notips boot.img
-          
+
+          # 6. Desempaquetar
+          # Usamos ./ porque ya les dimos permisos de ejecución
+          ./unpackimg.sh --notips boot.img
+
           # 7. Inyectar Kernel
           if [ -f "$IMAGE_SOURCE" ]; then
             cp -f "$IMAGE_SOURCE" split_img/boot.img-kernel
-            echo "✅ Kernel inyectado desde: $IMAGE_SOURCE"
+            echo "✅ Kernel inyectado"
           else
-            echo "❌ ERROR: No se encontró el kernel en $IMAGE_SOURCE"
+            echo "❌ ERROR: No se encontró Image en $IMAGE_SOURCE"
             exit 1
           fi
-          
+
           # 8. Reempaquetar
-          bash repackimg.sh --notips
-          
-          # 9. Mover resultado final
+          ./repackimg.sh --notips
+
+          # 9. Resultado final
           if [ -f "image-new.img" ]; then
             mv image-new.img $GITHUB_WORKSPACE/boot-custom-zeus.img
-            echo "✅ ¡TODO LISTO! Archivo generado con éxito."
           else
-            echo "❌ ERROR: El reempaquetado falló."
+            echo "❌ ERROR: Falló el reempaquetado"
             exit 1
           fi
           
