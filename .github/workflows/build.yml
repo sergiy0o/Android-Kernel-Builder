@@ -158,68 +158,43 @@ jobs:
           # Usamos la variable de entorno 'args' que definimos arriba
           make $args
 
-      - name: "🛠️ Setup & Repack Boot Image"
+      - name: "📦 Repack Boot Image (Manual Method)"
         working-directory: ./${{ env.kernelDir }}
         run: |
-          # 1. Rutas del kernel
+          # 1. Definir rutas
           IMAGE_SOURCE="$GITHUB_WORKSPACE/${{ env.kernelDir }}/${{ env.OUT_DIR }}/arch/arm64/boot/Image"
-          
-          # 2. Clonar el mirror de AIK para Linux (Este tiene los .sh en la raíz)
-          # Usamos un mirror alternativo muy fiable para entornos CI
-          rm -rf AIK
-          git clone https://github.com/cfig/Android_boot_image_editor.git AIK_TOOL || git clone https://github.com/Finger_Print/AIK-Linux-Mirror.git AIK
-          
-          # Si usamos el mirror de AIK-Linux:
-          if [ -d "AIK" ]; then
-            cd AIK
-          else
-            # Si el anterior falla, usamos una descarga directa de los scripts esenciales
-            mkdir -p AIK && cd AIK
-            curl -sLO https://raw.githubusercontent.com/osm0sis/Android-Image-Kitchen/master/bin/linux/x86_64/magiskboot
-            # Si magiskboot no baja, usamos el del sistema o el del repo
-            mkdir -p bin && mv magiskboot bin/ 2>/dev/null || true
-          fi
+          mkdir -p REPACK
+          cd REPACK
 
-          # 3. Descargar Boot Original
-          curl -L "https://github.com/${{ github.repository }}/releases/download/base-images/boot-original-lineage-23.2-20260317.img" -o boot.img
+          # 2. Descargar el boot original
+          curl -L "https://github.com/${{ github.repository }}/releases/download/base-images/boot-original-lineage-23.2-20260317.img" -o boot-old.img
 
-          # 4. Intentar desempaquetar con Magiskboot directamente (Más fiable que los scripts .sh)
-          # Esto es lo que hacen los scripts de AIK por detrás
-          chmod +x bin/magiskboot 2>/dev/null || chmod +x magiskboot 2>/dev/null || true
+          # 3. Instalar herramientas de boot de Android oficiales de Ubuntu
+          sudo apt-get update
+          sudo apt-get install -y abootimg
+
+          # 4. Intentar desempaquetar con abootimg
+          echo "🔎 Extrayendo información del boot original..."
+          abootimg -x boot-old.img
           
-          # Intentamos ejecutar los scripts si existen, si no, usamos el binario directamente
-          if [ -f "./unpackimg.sh" ]; then
-            chmod +x *.sh
-            ./unpackimg.sh --notips boot.img
-          else
-            echo "⚠️ No se encontró unpackimg.sh, intentando método manual con magiskboot..."
-            ./bin/magiskboot unpack boot.img
-          fi
-
-          # 5. Inyectar Kernel
+          # 5. Reemplazar el kernel
           if [ -f "$IMAGE_SOURCE" ]; then
-            # AIK usa split_img/, magiskboot directo usa nombres distintos
-            [ -d "split_img" ] && cp -f "$IMAGE_SOURCE" split_img/boot.img-kernel
-            [ -f "kernel" ] && cp -f "$IMAGE_SOURCE" kernel
-            echo "✅ Kernel inyectado"
+            echo "✅ Reemplazando zImage con el nuevo Kernel..."
+            cp -f "$IMAGE_SOURCE" zImage
           else
-            echo "❌ ERROR: No se encontró Image en $IMAGE_SOURCE"
+            echo "❌ ERROR: No se encontró el kernel compilado."
             exit 1
           fi
 
           # 6. Reempaquetar
-          if [ -f "./repackimg.sh" ]; then
-            ./repackimg.sh --notips
+          echo "🚀 Creando nuevo boot.img..."
+          abootimg --create ../boot-custom-zeus.img -f bootimg.cfg -k zImage -r initrd.img
+          
+          # 7. Verificación final
+          if [ -f "../boot-custom-zeus.img" ]; then
+            echo "✅ ¡POR FIN! Boot generado con abootimg."
           else
-            ./bin/magiskboot repack boot.img image-new.img
-          fi
-
-          # 7. Resultado final
-          if [ -f "image-new.img" ]; then
-            mv image-new.img $GITHUB_WORKSPACE/boot-custom-zeus.img
-            echo "✅ ¡PROCESO COMPLETADO EXITOSAMENTE!"
-          else
-            echo "❌ ERROR: No se pudo generar el archivo final"
+            echo "❌ ERROR: Falló la creación del boot."
             exit 1
           fi
           
