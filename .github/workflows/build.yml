@@ -186,50 +186,57 @@ jobs:
       - name: "📦 Repack Boot Image"
         working-directory: ./${{ env.kernelDir }}/AIK
         run: |
-          # 1. Ruta del kernel (Ya confirmada por el log anterior)
+          # 1. Definir rutas
           IMAGE_SOURCE="$GITHUB_WORKSPACE/${{ env.kernelDir }}/${{ env.OUT_DIR }}/arch/arm64/boot/Image"
           
-          # 2. Rescate de scripts y binarios de Linux
-          # Buscamos magiskboot y los scripts donde sea que estén en el repo clonado
-          echo "Repairing AIK structure for Linux..."
-          find . -name "magiskboot" -exec cp {} ./bin/ 2>/dev/null \;
-          find . -name "unpackimg.sh" -exec cp {} . \;
-          find . -name "repackimg.sh" -exec cp {} . \;
+          echo "Repairing AIK structure..."
+          # 2. Intentar localizar y mover scripts desde carpetas comunes de AIK
+          cp -f linux/*.sh . 2>/dev/null || true
+          cp -f bin/linux/x86_64/magiskboot bin/ 2>/dev/null || true
           
-          # Si después de buscarlos no están en la raíz, intentamos traerlos de la carpeta 'linux'
-          [ ! -f "unpackimg.sh" ] && cp -f linux/*.sh . 2>/dev/null || true
-          [ ! -f "bin/magiskboot" ] && cp -f bin/linux/x86_64/magiskboot bin/ 2>/dev/null || true
+          # 3. Permisos inteligentes (Solo si existen archivos)
+          if ls *.sh >/dev/null 2>&1; then
+            chmod +x *.sh
+          else
+            echo "⚠️ No se encontraron scripts .sh en la raíz, buscando en subdirectorios..."
+            find . -name "*.sh" -exec chmod +x {} +
+          fi
+          
+          [ -f "bin/magiskboot" ] && chmod +x bin/magiskboot
 
-          # 3. Permisos críticos
-          chmod +x *.sh
-          chmod +x bin/magiskboot
-          
-          # 4. Verificación final antes de ejecutar
-          if [ ! -f "unpackimg.sh" ]; then
-            echo "❌ ERROR: No se encontró unpackimg.sh en $(pwd)"
+          # 4. Verificación de ejecutables antes de proceder
+          UNPACK_SCRIPT=$(find . -name "unpackimg.sh" | head -n 1)
+          REPACK_SCRIPT=$(find . -name "repackimg.sh" | head -n 1)
+
+          if [ -z "$UNPACK_SCRIPT" ]; then
+            echo "❌ ERROR: No se encontró unpackimg.sh en ninguna parte de AIK."
             ls -R
             exit 1
           fi
 
-          # 5. Ejecución
-          ./unpackimg.sh boot.img
+          # 5. Ejecutar usando la ruta encontrada
+          echo "🚀 Ejecutando desempaquetado con: $UNPACK_SCRIPT"
+          $UNPACK_SCRIPT boot.img
           
+          # 6. Inyectar Kernel
           if [ -f "$IMAGE_SOURCE" ]; then
             cp -f "$IMAGE_SOURCE" split_img/boot.img-kernel
-            echo "✅ Kernel inyectado"
+            echo "✅ Kernel Image inyectado con éxito."
           else
-            echo "❌ ERROR: No se encontró la imagen compilada en $IMAGE_SOURCE"
+            echo "❌ ERROR: El kernel compilado no existe en $IMAGE_SOURCE"
             exit 1
           fi
           
-          ./repackimg.sh
+          # 7. Reempaquetar
+          echo "🚀 Ejecutando reempaquetado con: $REPACK_SCRIPT"
+          $REPACK_SCRIPT
           
-          # 6. Mover resultado
+          # 8. Mover resultado final
           if [ -f "image-new.img" ]; then
             mv image-new.img $GITHUB_WORKSPACE/boot-custom-zeus.img
-            echo "✅ ¡ÉXITO! Proceso completado."
+            echo "✅ ¡PROCESO COMPLETADO! Archivo generado."
           else
-            echo "❌ ERROR: Falló el reempaquetado final."
+            echo "❌ ERROR: Falló la generación de image-new.img"
             exit 1
           fi
 
