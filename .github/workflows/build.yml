@@ -158,50 +158,54 @@ jobs:
           # Usamos la variable de entorno 'args' que definimos arriba
           make $args
 
-      - name: "🛠️ Setup AIK"
+      - name: "🛠️ Setup & Repack Boot Image"
         working-directory: ./${{ env.kernelDir }}
         run: |
-          rm -rf AIK
-          # Usamos este mirror que tiene la estructura de Linux correcta
-          git clone --depth=1 https://github.com/hzyitc/Android-Image-Kitchen-Linux.git AIK
-          cd AIK
-          chmod -R +x .
-
-      - name: "📂 Download Original Boot Image"
-        working-directory: ./${{ env.kernelDir }}/AIK
-        run: |
-          curl -L "https://github.com/${{ github.repository }}/releases/download/base-images/boot-original-lineage-23.2-20260317.img" -o boot.img
-
-      - name: "📦 Repack Boot Image"
-        working-directory: ./${{ env.kernelDir }}/AIK
-        run: |
-          # 1. Ruta del kernel
+          # 1. Preparar rutas
           IMAGE_SOURCE="$GITHUB_WORKSPACE/${{ env.kernelDir }}/${{ env.OUT_DIR }}/arch/arm64/boot/Image"
           
-          # 2. Permisos y Verificación
-          chmod +x *.sh bin/magiskboot
+          # 2. Descargar e instalar AIK directamente desde el código fuente oficial
+          # Bajamos el ZIP de la rama principal para evitar problemas de Git Auth
+          curl -sL https://github.com/osm0sis/Android-Image-Kitchen/archive/refs/heads/master.zip -o aik.zip
+          unzip -q aik.zip
+          mv Android-Image-Kitchen-master AIK
+          cd AIK
           
-          # 3. Desempaquetar
-          ./unpackimg.sh --notips boot.img
+          # 3. Descargar los scripts de Linux necesarios (Asegurando la URL correcta)
+          curl -sL https://raw.githubusercontent.com/osm0sis/Android-Image-Kitchen/master/unpackimg.sh -o unpackimg.sh
+          curl -sL https://raw.githubusercontent.com/osm0sis/Android-Image-Kitchen/master/repackimg.sh -o repackimg.sh
           
-          # 4. Inyectar Kernel
+          # 4. Configurar binarios de Linux
+          # AIK guarda sus binarios en bin/linux/x86_64/
+          mkdir -p bin
+          cp -f bin/linux/x86_64/magiskboot bin/ 2>/dev/null || true
+          chmod -R +x .
+          
+          # 5. Descargar Boot Original (dentro de la carpeta AIK)
+          curl -L "https://github.com/${{ github.repository }}/releases/download/base-images/boot-original-lineage-23.2-20260317.img" -o boot.img
+          
+          # 6. Ejecutar Desempaquetado
+          # Usamos bash explícitamente para evitar errores de interpretación
+          bash unpackimg.sh --notips boot.img
+          
+          # 7. Inyectar Kernel
           if [ -f "$IMAGE_SOURCE" ]; then
             cp -f "$IMAGE_SOURCE" split_img/boot.img-kernel
-            echo "✅ Kernel inyectado."
+            echo "✅ Kernel inyectado desde: $IMAGE_SOURCE"
           else
-            echo "❌ ERROR: No se encontró Image en $IMAGE_SOURCE"
+            echo "❌ ERROR: No se encontró el kernel en $IMAGE_SOURCE"
             exit 1
           fi
           
-          # 5. Reempaquetar
-          ./repackimg.sh --notips
+          # 8. Reempaquetar
+          bash repackimg.sh --notips
           
-          # 6. Mover resultado final
+          # 9. Mover resultado final
           if [ -f "image-new.img" ]; then
             mv image-new.img $GITHUB_WORKSPACE/boot-custom-zeus.img
-            echo "✅ ¡PROCESO COMPLETADO!"
+            echo "✅ ¡TODO LISTO! Archivo generado con éxito."
           else
-            echo "❌ ERROR: No se generó la imagen nueva."
+            echo "❌ ERROR: El reempaquetado falló."
             exit 1
           fi
           
