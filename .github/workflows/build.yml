@@ -158,44 +158,51 @@ jobs:
           # Usamos la variable de entorno 'args' que definimos arriba
           make $args
 
-      - name: "📦 Repack Boot Image (Manual Method)"
+      - name: "📦 Repack Boot Image (GKI Method)"
         working-directory: ./${{ env.kernelDir }}
         run: |
           # 1. Definir rutas
           IMAGE_SOURCE="$GITHUB_WORKSPACE/${{ env.kernelDir }}/${{ env.OUT_DIR }}/arch/arm64/boot/Image"
-          mkdir -p REPACK
-          cd REPACK
-
-          # 2. Descargar el boot original
+          
+          # 2. Descargar Magiskboot estático (fuente de confianza)
+          # Usamos un repositorio de herramientas de sistema para evitar el 404 de osm0sis
+          curl -L https://github.com/miz_vlad/magiskboot-static/raw/main/magiskboot -o magiskboot
+          chmod +x magiskboot
+          
+          # 3. Descargar el boot original
           curl -L "https://github.com/${{ github.repository }}/releases/download/base-images/boot-original-lineage-23.2-20260317.img" -o boot-old.img
-
-          # 3. Instalar herramientas de boot de Android oficiales de Ubuntu
-          sudo apt-get update
-          sudo apt-get install -y abootimg
-
-          # 4. Intentar desempaquetar con abootimg
-          echo "🔎 Extrayendo información del boot original..."
-          abootimg -x boot-old.img
+          
+          # 4. Desempaquetar con Magiskboot (soporta Header v4)
+          echo "🔎 Desempaquetando boot original..."
+          ./magiskboot unpack boot-old.img
           
           # 5. Reemplazar el kernel
+          # Magiskboot genera un archivo llamado 'kernel' al desempaquetar
           if [ -f "$IMAGE_SOURCE" ]; then
-            echo "✅ Reemplazando zImage con el nuevo Kernel..."
-            cp -f "$IMAGE_SOURCE" zImage
+            echo "✅ Reemplazando kernel con la nueva compilación..."
+            cp -f "$IMAGE_SOURCE" kernel
           else
-            echo "❌ ERROR: No se encontró el kernel compilado."
+            echo "❌ ERROR: No se encontró el kernel compilado en $IMAGE_SOURCE"
             exit 1
           fi
-
-          # 6. Reempaquetar
-          echo "🚀 Creando nuevo boot.img..."
-          abootimg --create ../boot-custom-zeus.img -f bootimg.cfg -k zImage -r initrd.img
           
-          # 7. Verificación final
-          if [ -f "../boot-custom-zeus.img" ]; then
-            echo "✅ ¡POR FIN! Boot generado con abootimg."
+          # 6. Reempaquetar
+          echo "🚀 Reempaquetando boot image..."
+          ./magiskboot repack boot-old.img boot-custom-zeus.img
+          
+          # 7. Mover resultado a la raíz para el artifact
+          if [ -f "boot-custom-zeus.img" ]; then
+            mv boot-custom-zeus.img $GITHUB_WORKSPACE/boot-custom-zeus.img
+            echo "✅ ¡HECHO! Boot GKI generado correctamente."
           else
-            echo "❌ ERROR: Falló la creación del boot."
-            exit 1
+            # Magiskboot a veces genera 'new-boot.img' por defecto
+            if [ -f "new-boot.img" ]; then
+              mv new-boot.img $GITHUB_WORKSPACE/boot-custom-zeus.img
+              echo "✅ ¡HECHO! Boot GKI generado (new-boot.img)."
+            else
+              echo "❌ ERROR: Falló el reempaquetado."
+              exit 1
+            fi
           fi
           
       - name: "💛 Upload Image"
