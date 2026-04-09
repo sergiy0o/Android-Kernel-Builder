@@ -161,21 +161,17 @@ jobs:
       - name: "🛠️ Setup AIK"
         working-directory: ./${{ env.kernelDir }}
         run: |
-          # 1. Limpieza radical
           rm -rf AIK
-          mkdir AIK
-          
-          # 2. Clonamos en una carpeta temporal para no tener conflictos con la carpeta actual
-          git clone --depth=1 https://github.com/osm0sis/Android-Image-Kitchen.git AIK_TMP
-          
-          # 3. Movemos el contenido a la carpeta AIK definitiva
-          mv AIK_TMP/* AIK/
-          [ -d "AIK_TMP/bin" ] && mv AIK_TMP/bin AIK/
-          rm -rf AIK_TMP
-          
-          # 4. Ajuste de binarios para Linux (Garantizamos que magiskboot esté en su sitio)
+          git clone --depth=1 https://github.com/osm0sis/Android-Image-Kitchen.git AIK
           cd AIK
-          [ -d "bin/linux/x86_64" ] && cp -rf bin/linux/x86_64/* bin/
+          # Forzamos la descarga de los scripts de Linux que faltan en tu log
+          curl -sLO https://raw.githubusercontent.com/osm0sis/Android-Image-Kitchen/master/unpackimg.sh
+          curl -sLO https://raw.githubusercontent.com/osm0sis/Android-Image-Kitchen/master/repackimg.sh
+          curl -sLO https://raw.githubusercontent.com/osm0sis/Android-Image-Kitchen/master/cleanup.sh
+          # Los scripts de osm0sis requieren magiskboot. Vamos a buscarlo en el repo clonado
+          # y moverlo a donde los scripts lo esperan
+          mkdir -p bin
+          cp -f bin/linux/x86_64/magiskboot bin/ 2>/dev/null || true
           chmod -R +x .
 
       - name: "📂 Download Original Boot Image"
@@ -186,60 +182,36 @@ jobs:
       - name: "📦 Repack Boot Image"
         working-directory: ./${{ env.kernelDir }}/AIK
         run: |
-          # 1. Definir rutas
+          # 1. Ruta del kernel compilado
           IMAGE_SOURCE="$GITHUB_WORKSPACE/${{ env.kernelDir }}/${{ env.OUT_DIR }}/arch/arm64/boot/Image"
           
-          echo "Repairing AIK structure..."
-          # 2. Intentar localizar y mover scripts desde carpetas comunes de AIK
-          cp -f linux/*.sh . 2>/dev/null || true
-          cp -f bin/linux/x86_64/magiskboot bin/ 2>/dev/null || true
-          
-          # 3. Permisos inteligentes (Solo si existen archivos)
-          if ls *.sh >/dev/null 2>&1; then
-            chmod +x *.sh
-          else
-            echo "⚠️ No se encontraron scripts .sh en la raíz, buscando en subdirectorios..."
-            find . -name "*.sh" -exec chmod +x {} +
-          fi
-          
+          # 2. Asegurar permisos (ahora que bajamos los .sh con curl)
+          chmod +x *.sh
           [ -f "bin/magiskboot" ] && chmod +x bin/magiskboot
 
-          # 4. Verificación de ejecutables antes de proceder
-          UNPACK_SCRIPT=$(find . -name "unpackimg.sh" | head -n 1)
-          REPACK_SCRIPT=$(find . -name "repackimg.sh" | head -n 1)
-
-          if [ -z "$UNPACK_SCRIPT" ]; then
-            echo "❌ ERROR: No se encontró unpackimg.sh en ninguna parte de AIK."
-            ls -R
-            exit 1
-          fi
-
-          # 5. Ejecutar usando la ruta encontrada
-          echo "🚀 Ejecutando desempaquetado con: $UNPACK_SCRIPT"
-          $UNPACK_SCRIPT boot.img
+          # 3. Desempaquetar
+          ./unpackimg.sh boot.img
           
-          # 6. Inyectar Kernel
+          # 4. Inyectar Kernel
           if [ -f "$IMAGE_SOURCE" ]; then
             cp -f "$IMAGE_SOURCE" split_img/boot.img-kernel
-            echo "✅ Kernel Image inyectado con éxito."
+            echo "✅ Kernel Image inyectado."
           else
-            echo "❌ ERROR: El kernel compilado no existe en $IMAGE_SOURCE"
+            echo "❌ ERROR: No se encontró la imagen en $IMAGE_SOURCE"
             exit 1
           fi
           
-          # 7. Reempaquetar
-          echo "🚀 Ejecutando reempaquetado con: $REPACK_SCRIPT"
-          $REPACK_SCRIPT
+          # 5. Reempaquetar
+          ./repackimg.sh
           
-          # 8. Mover resultado final
+          # 6. Mover resultado final
           if [ -f "image-new.img" ]; then
             mv image-new.img $GITHUB_WORKSPACE/boot-custom-zeus.img
-            echo "✅ ¡PROCESO COMPLETADO! Archivo generado."
+            echo "✅ ¡PROCESO COMPLETADO!"
           else
-            echo "❌ ERROR: Falló la generación de image-new.img"
+            echo "❌ ERROR: No se pudo generar image-new.img"
             exit 1
           fi
-
           
       - name: "💛 Upload Image"
         uses: actions/upload-artifact@v4
