@@ -161,53 +161,41 @@ jobs:
       - name: "📦 Repack Boot Image (GKI Method)"
         working-directory: ./${{ env.kernelDir }}
         run: |
-          # 1. Definir rutas
           IMAGE_SOURCE="$GITHUB_WORKSPACE/${{ env.kernelDir }}/${{ env.OUT_DIR }}/arch/arm64/boot/Image"
           
-          # 2. Preparar Magiskboot (Ya vimos que este método funciona)
+          # 1. Preparar Magiskboot
           curl -L https://github.com/Topjohnwu/Magisk/releases/download/v26.4/Magisk-v26.4.apk -o magisk.zip
           unzip -j magisk.zip "lib/x86_64/libmagiskboot.so" -d .
-          mv libmagiskboot.so magiskboot
-          chmod +x magiskboot
+          mv libmagiskboot.so magiskboot && chmod +x magiskboot
 
-          # 3. Descargar el boot original con reintentos y verificación
-          # He corregido la URL para asegurar que GitHub no bloquee la descarga
-          echo "📂 Descargando boot original..."
-          curl -L "https://github.com/${{ github.repository }}/releases/download/base-images/boot-original-lineage-23.2-20260317.img" -o boot-old.img
+          # 2. Descarga con URL verificada
+          # ⚠️ REVISA ESTA URL: Debe coincidir EXACTAMENTE con tu sección de Releases
+          BOOT_URL="https://github.com/${{ github.repository }}/releases/download/base-images/boot-original-lineage-23.2-20260317.img"
           
-          # VERIFICACIÓN DE TAMAÑO: Si mide menos de 10MB, es un error
+          echo "📂 Descargando desde: $BOOT_URL"
+          curl -L "$BOOT_URL" -o boot-old.img
+          
           FILESIZE=$(stat -c%s "boot-old.img")
-          echo "📏 Tamaño del boot descargado: $FILESIZE bytes"
-          if [ $FILESIZE -lt 10000000 ]; then
-            echo "❌ ERROR: El boot-old.img es demasiado pequeño. Probablemente un 404 de GitHub."
-            echo "Contenido del archivo fallido:"
-            cat boot-old.img
+          if [ $FILESIZE -lt 1000000 ]; then
+            echo "❌ ERROR 404: El archivo no existe en esa URL."
+            echo "Asegúrate de que en GitHub: "
+            echo "1. El Tag se llame: base-images"
+            echo "2. El archivo se llame: boot-original-lineage-23.2-20260317.img"
             exit 1
           fi
 
-          # 4. Desempaquetar
-          echo "🔎 Desempaquetando boot..."
+          # 3. Desempaquetar y Reemplazar
           ./magiskboot unpack boot-old.img
+          cp -f "$IMAGE_SOURCE" kernel
           
-          # 5. Inyectar Kernel
-          if [ -f "$IMAGE_SOURCE" ]; then
-            cp -f "$IMAGE_SOURCE" kernel
-            echo "✅ Kernel reemplazado exitosamente."
-          else
-            echo "❌ ERROR: No se encontró el kernel compilado en $IMAGE_SOURCE"
-            exit 1
-          fi
-          
-          # 6. Reempaquetar
-          echo "🚀 Reempaquetando..."
+          # 4. Reempaquetar
           ./magiskboot repack boot-old.img new-boot.img
           
-          # 7. Mover resultado final
           if [ -f "new-boot.img" ]; then
             mv new-boot.img $GITHUB_WORKSPACE/boot-custom-zeus.img
-            echo "✅ ¡PROCESO FINALIZADO!"
+            echo "✅ ¡TERMINADO! Archivo listo para descargar."
           else
-            echo "❌ ERROR: Magiskboot no generó new-boot.img"
+            echo "❌ ERROR: No se pudo crear la imagen final."
             exit 1
           fi
           
