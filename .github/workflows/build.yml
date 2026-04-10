@@ -164,25 +164,33 @@ jobs:
           # 1. Definir rutas
           IMAGE_SOURCE="$GITHUB_WORKSPACE/${{ env.kernelDir }}/${{ env.OUT_DIR }}/arch/arm64/boot/Image"
           
-          # 2. Descargar Magiskboot estático (fuente de confianza)
-          # Usamos un repositorio de herramientas de sistema para evitar el 404 de osm0sis
-          curl -L https://github.com/miz_vlad/magiskboot-static/raw/main/magiskboot -o magiskboot
+          # 2. Descargar Magiskboot (URL de descarga directa de Release)
+          # Esta URL apunta al binario comprimido de Magisk oficial para evitar el error HTML
+          curl -L https://github.com/Topjohnwu/Magisk/releases/download/v26.4/Magisk-v26.4.apk -o magisk.zip
+          unzip -j magisk.zip "lib/x86_64/libmagiskboot.so" -d .
+          mv libmagiskboot.so magiskboot
           chmod +x magiskboot
           
-          # 3. Descargar el boot original
+          # Verificación: Si el archivo contiene HTML, detenemos el proceso
+          if grep -q "<!DOCTYPE html>" magiskboot; then
+            echo "❌ ERROR: Se descargó un HTML en lugar del binario. Reintentando con fuente alternativa..."
+            curl -L "https://raw.githubusercontent.com/skylot/magisk-releases/master/magiskboot" -o magiskboot
+            chmod +x magiskboot
+          fi
+
+          # 3. Descargar el boot original (Asegúrate de que la URL sea correcta)
           curl -L "https://github.com/${{ github.repository }}/releases/download/base-images/boot-original-lineage-23.2-20260317.img" -o boot-old.img
           
-          # 4. Desempaquetar con Magiskboot (soporta Header v4)
+          # 4. Desempaquetar
           echo "🔎 Desempaquetando boot original..."
           ./magiskboot unpack boot-old.img
           
           # 5. Reemplazar el kernel
-          # Magiskboot genera un archivo llamado 'kernel' al desempaquetar
           if [ -f "$IMAGE_SOURCE" ]; then
-            echo "✅ Reemplazando kernel con la nueva compilación..."
+            echo "✅ Reemplazando kernel..."
             cp -f "$IMAGE_SOURCE" kernel
           else
-            echo "❌ ERROR: No se encontró el kernel compilado en $IMAGE_SOURCE"
+            echo "❌ ERROR: No se encontró el kernel en $IMAGE_SOURCE"
             exit 1
           fi
           
@@ -190,20 +198,16 @@ jobs:
           echo "🚀 Reempaquetando boot image..."
           ./magiskboot repack boot-old.img boot-custom-zeus.img
           
-          # 7. Mover resultado a la raíz para el artifact
-          if [ -f "boot-custom-zeus.img" ]; then
+          # 7. Gestionar el archivo de salida
+          if [ -f "new-boot.img" ]; then
+            mv new-boot.img $GITHUB_WORKSPACE/boot-custom-zeus.img
+          elif [ -f "boot-custom-zeus.img" ]; then
             mv boot-custom-zeus.img $GITHUB_WORKSPACE/boot-custom-zeus.img
-            echo "✅ ¡HECHO! Boot GKI generado correctamente."
           else
-            # Magiskboot a veces genera 'new-boot.img' por defecto
-            if [ -f "new-boot.img" ]; then
-              mv new-boot.img $GITHUB_WORKSPACE/boot-custom-zeus.img
-              echo "✅ ¡HECHO! Boot GKI generado (new-boot.img)."
-            else
-              echo "❌ ERROR: Falló el reempaquetado."
-              exit 1
-            fi
+            echo "❌ ERROR: No se generó la imagen."
+            exit 1
           fi
+          echo "✅ ¡HECHO! Imagen lista."
           
       - name: "💛 Upload Image"
         uses: actions/upload-artifact@v4
