@@ -158,33 +158,34 @@ jobs:
           # Usamos la variable de entorno 'args' que definimos arriba
           make $args
 
-      - name: "📦 Repack Boot Image (Direct Magiskboot Method)"
+      - name: "📦 Repack Boot Image (GKI Method)"
         working-directory: ./${{ env.kernelDir }}
         run: |
-          # 1. Rutas
-          IMAGE_SOURCE="$GITHUB_WORKSPACE/${{ env.kernelDir }}/${{ env.OUT_DIR }}/arch/arm64/boot/Image"
-          
-          # 2. Obtener Magiskboot del APK oficial (Garantiza binario real, no HTML 404)
+          # 1. Preparar Magiskboot
           curl -L https://github.com/Topjohnwu/Magisk/releases/download/v26.4/Magisk-v26.4.apk -o magisk.zip
           unzip -j magisk.zip "lib/x86_64/libmagiskboot.so" -d .
-          mv libmagiskboot.so magiskboot
-          chmod +x magiskboot
+          mv libmagiskboot.so magiskboot && chmod +x magiskboot
 
-          # 3. Descargar el boot original (Xiaomi 12 Pro / Zeus)
-          # Asegúrate de subir este archivo a tu repo si este enlace falla
-          curl -L "https://github.com/${{ github.repository }}/releases/download/base-images/boot-original-lineage-23.2-20260317.img" -o boot-old.img
+          # 2. Descargar el boot original (URL Confirmada)
+          echo "📂 Descargando boot original desde Release..."
+          curl -L "https://github.com/sergiy0o/Android-Kernel-Builder/releases/download/base-images/boot.img" -o boot-old.img
           
-          # Verificación rápida del tamaño (si es < 1MB, falló)
-          if [ $(stat -c%s "boot-old.img") -lt 1000000 ]; then
-            echo "❌ ERROR: El boot original no se descargó correctamente (404)."
+          # Verificación de integridad
+          FILESIZE=$(stat -c%s "boot-old.img")
+          echo "📏 Tamaño: $FILESIZE bytes"
+          if [ $FILESIZE -lt 1000000 ]; then
+            echo "❌ ERROR: El archivo descargado no es un boot válido (posible 404)."
             exit 1
           fi
 
-          # 4. Desempaquetar
-          echo "🔎 Desempaquetando boot original..."
+          # 3. Desempaquetar
+          echo "🔎 Desempaquetando boot..."
           ./magiskboot unpack boot-old.img
-
-          # 5. Inyectar el Kernel compilado
+          
+          # 4. Inyectar el Kernel compilado
+          # Buscamos la imagen en la ruta que confirmamos en los logs anteriores
+          IMAGE_SOURCE="$GITHUB_WORKSPACE/${{ env.kernelDir }}/${{ env.OUT_DIR }}/arch/arm64/boot/Image"
+          
           if [ -f "$IMAGE_SOURCE" ]; then
             cp -f "$IMAGE_SOURCE" kernel
             echo "✅ Kernel inyectado correctamente."
@@ -192,17 +193,17 @@ jobs:
             echo "❌ ERROR: No se encontró el kernel compilado en $IMAGE_SOURCE"
             exit 1
           fi
-
-          # 6. Reempaquetar
-          echo "🚀 Reempaquetando imagen..."
+          
+          # 5. Reempaquetar
+          echo "🚀 Reempaquetando..."
           ./magiskboot repack boot-old.img new-boot.img
-
-          # 7. Mover resultado al espacio de trabajo
+          
+          # 6. Mover resultado final para el artifact
           if [ -f "new-boot.img" ]; then
             mv new-boot.img $GITHUB_WORKSPACE/boot-custom-zeus.img
-            echo "✅ ¡PROCESO EXITOSO!"
+            echo "✅ ¡PROCESO COMPLETADO EXITOSAMENTE!"
           else
-            echo "❌ ERROR: No se generó la imagen final."
+            echo "❌ ERROR: Magiskboot no pudo generar la imagen final."
             exit 1
           fi
           
@@ -243,4 +244,9 @@ jobs:
         with:
           name: Boot-KernelSU-Zeus
           path: boot-custom-zeus.img
+          if-no-files-found: error
           retention-days: 7
+
+      # Este paso es opcional pero útil para ver si todo quedó en su lugar
+      - name: "✅ Check Files"
+        run: ls -lh $GITHUB_WORKSPACE/*.img
