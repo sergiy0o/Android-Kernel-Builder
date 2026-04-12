@@ -158,53 +158,51 @@ jobs:
           # Usamos la variable de entorno 'args' que definimos arriba
           make $args
 
-      - name: "🛠️ Setup & Repack Boot Image"
+      - name: "📦 Repack Boot Image (Direct Magiskboot Method)"
         working-directory: ./${{ env.kernelDir }}
         run: |
-          # 1. Preparar rutas
+          # 1. Rutas
           IMAGE_SOURCE="$GITHUB_WORKSPACE/${{ env.kernelDir }}/${{ env.OUT_DIR }}/arch/arm64/boot/Image"
           
-          # 2. Descargar e instalar AIK directamente (vía ZIP para evitar errores de Git)
-          curl -sL https://github.com/osm0sis/Android-Image-Kitchen/archive/refs/heads/master.zip -o aik.zip
-          unzip -q aik.zip
-          mv Android-Image-Kitchen-master AIK
-          cd AIK
+          # 2. Obtener Magiskboot del APK oficial (Garantiza binario real, no HTML 404)
+          curl -L https://github.com/Topjohnwu/Magisk/releases/download/v26.4/Magisk-v26.4.apk -o magisk.zip
+          unzip -j magisk.zip "lib/x86_64/libmagiskboot.so" -d .
+          mv libmagiskboot.so magiskboot
+          chmod +x magiskboot
+
+          # 3. Descargar el boot original (Xiaomi 12 Pro / Zeus)
+          # Asegúrate de subir este archivo a tu repo si este enlace falla
+          curl -L "https://github.com/${{ github.repository }}/releases/download/base-images/boot-original-lineage-23.2-20260317.img" -o boot-old.img
           
-          # 3. Descargar los scripts de Linux necesarios (Asegurando la URL correcta)
-          curl -sL https://raw.githubusercontent.com/osm0sis/Android-Image-Kitchen/master/unpackimg.sh -o unpackimg.sh
-          curl -sL https://raw.githubusercontent.com/osm0sis/Android-Image-Kitchen/master/repackimg.sh -o repackimg.sh
-          
-          # 4. Configurar binarios de Linux
-          # AIK guarda sus binarios en bin/linux/x86_64/
-          mkdir -p bin
-          cp -f bin/linux/x86_64/magiskboot bin/ 2>/dev/null || true
-          chmod -R +x .
-          
-          # 5. Descargar Boot Original (dentro de la carpeta AIK)
-          curl -L "https://github.com/${{ github.repository }}/releases/download/base-images/boot-original-lineage-23.2-20260317.img" -o boot.img
-          
-          # 6. Ejecutar Desempaquetado
-          # Usamos bash explícitamente para evitar errores de interpretación
-          bash unpackimg.sh --notips boot.img
-          
-          # 7. Inyectar Kernel
-          if [ -f "$IMAGE_SOURCE" ]; then
-            cp -f "$IMAGE_SOURCE" split_img/boot.img-kernel
-            echo "✅ Kernel inyectado desde: $IMAGE_SOURCE"
-          else
-            echo "❌ ERROR: No se encontró el kernel en $IMAGE_SOURCE"
+          # Verificación rápida del tamaño (si es < 1MB, falló)
+          if [ $(stat -c%s "boot-old.img") -lt 1000000 ]; then
+            echo "❌ ERROR: El boot original no se descargó correctamente (404)."
             exit 1
           fi
-          
-          # 8. Reempaquetar
-          bash repackimg.sh --notips
-          
-          # 9. Mover resultado final a la raíz para el Artifact
-          if [ -f "image-new.img" ]; then
-            mv image-new.img $GITHUB_WORKSPACE/boot-custom-zeus.img
-            echo "✅ ¡TODO LISTO! Archivo generado con éxito."
+
+          # 4. Desempaquetar
+          echo "🔎 Desempaquetando boot original..."
+          ./magiskboot unpack boot-old.img
+
+          # 5. Inyectar el Kernel compilado
+          if [ -f "$IMAGE_SOURCE" ]; then
+            cp -f "$IMAGE_SOURCE" kernel
+            echo "✅ Kernel inyectado correctamente."
           else
-            echo "❌ ERROR: El reempaquetado falló."
+            echo "❌ ERROR: No se encontró el kernel compilado en $IMAGE_SOURCE"
+            exit 1
+          fi
+
+          # 6. Reempaquetar
+          echo "🚀 Reempaquetando imagen..."
+          ./magiskboot repack boot-old.img new-boot.img
+
+          # 7. Mover resultado al espacio de trabajo
+          if [ -f "new-boot.img" ]; then
+            mv new-boot.img $GITHUB_WORKSPACE/boot-custom-zeus.img
+            echo "✅ ¡PROCESO EXITOSO!"
+          else
+            echo "❌ ERROR: No se generó la imagen final."
             exit 1
           fi
           
